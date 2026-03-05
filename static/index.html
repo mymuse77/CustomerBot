@@ -882,30 +882,14 @@ function exitImageFullscreen() {
   isImageFullscreen = false;
 }
 
-// 监听全屏变化事件，同步状态
-document.addEventListener('fullscreenchange', function() {
-  isImageFullscreen = !!(document.fullscreenElement || 
-                         document.webkitFullscreenElement || 
-                         document.mozFullScreenElement || 
-                         document.msFullscreenElement);
-});
-document.addEventListener('webkitfullscreenchange', function() {
-  isImageFullscreen = !!(document.fullscreenElement || 
-                         document.webkitFullscreenElement || 
-                         document.mozFullScreenElement || 
-                         document.msFullscreenElement);
-});
-document.addEventListener('mozfullscreenchange', function() {
-  isImageFullscreen = !!(document.fullscreenElement || 
-                         document.webkitFullscreenElement || 
-                         document.mozFullScreenElement || 
-                         document.msFullscreenElement);
-});
-document.addEventListener('MSFullscreenChange', function() {
-  isImageFullscreen = !!(document.fullscreenElement || 
-                         document.webkitFullscreenElement || 
-                         document.mozFullScreenElement || 
-                         document.msFullscreenElement);
+// 处理ESC关闭消息（来自iframe内）
+window.addEventListener('message', function(e) {
+  if (e.data && e.data.type === 'esc-close') {
+    console.log('[message] 收到ESC关闭消息');
+    if (imageViewer.classList.contains('visible')) {
+      closeImageViewer();
+    }
+  }
 });
 
 // 点击图片查看大图
@@ -1002,9 +986,20 @@ window.addEventListener('message', function(e) {
 // ESC键关闭图片查看器
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
+    console.log('[ESC] 按键捕获');
     if (imageViewer.classList.contains('visible')) {
+      console.log('[ESC] 关闭查看器');
       closeImageViewer();
     }
+  }
+});
+
+// 查看器点击背景关闭
+imageViewer.addEventListener('click', function(e) {
+  // 如果点击的是查看器背景（不是iframe或关闭按钮）
+  if (e.target === imageViewer) {
+    console.log('[查看器背景点击] 关闭');
+    closeImageViewer();
   }
 });
 </script>

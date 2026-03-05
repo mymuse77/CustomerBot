@@ -1,5 +1,7 @@
 """应用配置"""
 
+import os
+
 # MySQL 数据库配置
 DB_HOST = "127.0.0.1"
 DB_PORT = 3306
@@ -8,9 +10,28 @@ DB_PASSWORD = "qwer~1234"
 DB_NAME = "spkf"
 
 # DeepSeek API 配置
-DEEPSEEK_API_KEY = "sk-b4f5d1a133c041c79c519a87a55f6c62"
-DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-DEEPSEEK_MODEL = "deepseek-chat"
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+
+# 视频FLV源配置（主源 + 备选源）
+# 注意：截图功能需要视频服务器支持 CORS 头部 (Access-Control-Allow-Origin)
+FLV_VIDEO_URLS = [
+    "https://sf1-cdn-tos.huoshanstatic.com/obj/media-fe/xgplayer_doc_video/mp4/xgplayer-demo-360p.mp4",
+    "https://mister-ben.github.io/videojs-flvjs/bbb.flv",  # Big Buck Bunny
+    "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",  # HLS
+]
+
+
+# 获取主视频源
+def get_primary_video_url() -> str:
+    return FLV_VIDEO_URLS[0]
+
+
+# 获取所有视频源
+def get_all_video_urls() -> list:
+    return FLV_VIDEO_URLS
+
 
 # 数据库表结构描述（供 Text2SQL 使用）
 DB_SCHEMA = """

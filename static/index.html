@@ -259,6 +259,153 @@
   details { margin-top: 6px; }
   details summary { cursor: pointer; font-size: 11px; color: #666; user-select: none; }
   details pre { margin-top: 4px; font-size: 11px; }
+
+  /* ===== 视频播放器（聊天框内嵌） ===== */
+  .msg .bubble .video-embed {
+    margin: 10px 0;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #000;
+    position: relative;
+  }
+  .msg .bubble .video-embed video {
+    display: block;
+    width: 100%;
+    max-height: 300px;
+    cursor: pointer;
+  }
+  .msg .bubble .video-embed .video-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: opacity .2s;
+  }
+  .msg .bubble .video-embed .video-overlay.hidden {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .msg .bubble .video-embed .play-icon {
+    width: 60px;
+    height: 60px;
+    background: rgba(255,255,255,.9);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.3);
+  }
+  .msg .bubble .video-embed .video-title-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(transparent, rgba(0,0,0,.7));
+    padding: 30px 10px 8px;
+    color: #fff;
+    font-size: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .msg .bubble .video-embed .video-title-bar .title-info {
+    flex: 1;
+  }
+  .msg .bubble .video-embed .video-title-bar .fullscreen-btn {
+    background: rgba(255,255,255,0.2);
+    border: none;
+    color: #fff;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transition: background .2s;
+  }
+  .msg .bubble .video-embed .video-title-bar .fullscreen-btn:hover {
+    background: rgba(255,255,255,0.4);
+  }
+  .msg .bubble .video-embed:hover .video-overlay {
+    background: rgba(0,0,0,.5);
+  }
+
+  /* ===== 图片展示 ===== */
+  .msg .bubble .image-preview {
+    margin: 10px 0;
+    text-align: center;
+  }
+  .msg .bubble .image-preview img {
+    max-width: 100%;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.15);
+    cursor: pointer;
+    transition: transform .2s;
+  }
+  .msg .bubble .image-preview img:hover {
+    transform: scale(1.02);
+  }
+  .msg .bubble .image-preview .image-title {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 6px;
+  }
+
+  /* ===== 图片查看器 ===== */
+  #image-viewer {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.9);
+    z-index: 3000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  #image-viewer.visible {
+    display: flex;
+  }
+  #image-viewer img {
+    max-width: 100%;
+    max-height: 90vh;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: transform .3s ease;
+  }
+  #image-viewer img:hover {
+    transform: scale(1.02);
+  }
+  #image-viewer .close-viewer {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: rgba(255,255,255,.2);
+    border: none;
+    color: #fff;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    font-size: 20px;
+    cursor: pointer;
+    transition: background .2s;
+  }
+  #image-viewer .close-viewer:hover {
+    background: rgba(255,255,255,.4);
+  }
+  #image-viewer .hint {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,.6);
+    font-size: 12px;
+    pointer-events: none;
+  }
 </style>
 </head>
 <body>
@@ -270,6 +417,15 @@
 <button id="fab" onclick="toggleDrawer()">
   <span class="fab-icon">🤖</span>智能客服
 </button>
+
+<!-- 视频播放器（聊天框内嵌，无弹窗） -->
+<!-- 视频直接在chat bubble中播放 -->
+
+<!-- 图片查看器 -->
+<div id="image-viewer">
+  <button class="close-viewer" onclick="closeImageViewer()">✕</button>
+  <iframe id="full-image-frame" src="" style="width:90vw;height:90vh;border:none;" sandbox="allow-scripts allow-same-origin"></iframe>
+</div>
 
 <!-- 抽屉面板 -->
 <div id="drawer">
@@ -300,6 +456,8 @@
     <button onclick="askQuestion(this.textContent)">离线Top10区域</button>
     <button onclick="askQuestion(this.textContent)">视频图片完好率</button>
     <button onclick="askQuestion(this.textContent)">摄像机总数统计</button>
+    <button onclick="askQuestion(this.textContent)">我需要查看在线摄像机的视频</button>
+    <button onclick="askQuestion(this.textContent)">我需要查看在线摄像机的图片</button>
   </div>
 
   <div class="input-area">
@@ -310,6 +468,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/flv.js@1.6.2/dist/flv.min.js"></script>
 <script>
 const drawer   = document.getElementById('drawer');
 const overlay  = document.getElementById('overlay');
@@ -317,6 +476,10 @@ const fab      = document.getElementById('fab');
 const chatEl   = document.getElementById('chat-container');
 const inputEl  = document.getElementById('input');
 const sendBtn  = document.getElementById('sendBtn');
+
+// 图片查看器相关
+const imageViewer = document.getElementById('image-viewer');
+const fullImageIframe = document.getElementById('full-image-frame');
 
 let isOpen = false;
 
@@ -398,7 +561,65 @@ async function send() {
     const data = await res.json();
     removeTyping();
     if (data.answer) {
-      addMsg('bot', renderMd(data.answer), data.sql);
+      // 检查是否有媒体内容（视频/图片）
+      if (data.media) {
+        const media = data.media;
+        let html = data.answer;
+        
+        if (media.type === 'video') {
+          // 动态检测视频MIME类型
+          const videoUrl = media.url;
+          let videoType = 'video/mp4'; // 默认MP4
+          if (videoUrl.endsWith('.flv')) {
+            videoType = 'video/x-flv';
+          } else if (videoUrl.endsWith('.m3u8')) {
+            videoType = 'application/x-mpegURL';
+          } else if (videoUrl.endsWith('.webm')) {
+            videoType = 'video/webm';
+          }
+          
+          // 视频：内嵌在聊天框中，支持点击播放和双击全屏
+          html += `<div class="video-embed">
+            <video id="video-${Date.now()}" preload="metadata" crossorigin="anonymous">
+              <source src="${videoUrl}" type="${videoType}">
+            </video>
+            <div class="video-overlay">
+              <div class="play-icon">▶</div>
+            </div>
+            <div class="video-title-bar">
+              <span class="title-info">${escapeHtml(media.camera_name)} (ID: ${media.camera_id}) · 点击播放/暂停</span>
+              <button class="fullscreen-btn" title="全屏播放">⛶ 全屏</button>
+            </div>
+          </div>`;
+        } else if (media.type === 'image') {
+          // 图片：使用iframe加载base64截图API，通过postMessage获取图片数据
+          const imageId = 'img-' + Date.now();
+          const iframeId = 'iframe-' + Date.now();
+          html += `<div class="image-preview" id="${imageId}" data-image-url="${escapeHtml(media.url)}">
+            <div class="image-title">🖼️ ${escapeHtml(media.camera_name)} (ID: ${media.camera_id}) · 点击查看大图 · 双击全屏</div>
+            <div class="image-wrapper" style="position:relative;cursor:pointer;min-height:200px;background:#1a1a1a;border-radius:8px;display:flex;align-items:center;justify-content:center;">
+              <iframe id="${iframeId}" src="${escapeHtml(media.url)}" style="width:100%;height:350px;border:1px solid #ddd;border-radius:8px;background:#1a1a1a;" sandbox="allow-scripts allow-same-origin"></iframe>
+              <img class="image-result" style="width:100%;height:auto;border-radius:8px;display:none;" />
+            </div>
+            <p class="loading-hint" style="font-size:11px;color:#999;margin-top:4px;">⏳ 正在截取视频画面...</p>
+          </div>`;
+        }
+        
+        addMsg('bot', renderMd(html), data.sql);
+        
+        // 为视频和图片添加事件处理
+        setTimeout(() => {
+          if (media.type === 'video') {
+            initChatVideos();
+          }
+          if (media.type === 'image') {
+            setupImageClickHandlers();
+          }
+        }, 100);
+      } else {
+        // 普通文本回答
+        addMsg('bot', renderMd(data.answer), data.sql);
+      }
     } else {
       addMsg('bot', '抱歉，暂时无法回答该问题，请稍后重试。');
     }
@@ -415,6 +636,366 @@ function askQuestion(q) {
   inputEl.value = q;
   send();
 }
+
+// ========== 视频播放功能（聊天框内嵌） ==========
+function setupInlineVideo(videoContainer, videoUrl) {
+  const video = videoContainer.querySelector('video');
+  const overlay = videoContainer.querySelector('.video-overlay');
+  
+  // 点击播放/暂停
+  video.addEventListener('click', function() {
+    if (video.paused) {
+      playInlineVideo(video, videoUrl);
+    } else {
+      video.pause();
+    }
+  });
+  
+  // 点击遮罩层播放
+  overlay.addEventListener('click', function() {
+    playInlineVideo(video, videoUrl);
+  });
+  
+  // 视频播放后隐藏遮罩
+  video.addEventListener('play', function() {
+    overlay.classList.add('hidden');
+  });
+  
+  // 视频暂停显示遮罩
+  video.addEventListener('pause', function() {
+    overlay.classList.remove('hidden');
+  });
+  
+  // 点击全屏按钮进入全屏
+  const fullscreenBtn = videoContainer.querySelector('.fullscreen-btn');
+  if (fullscreenBtn) {
+    fullscreenBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      toggleFullscreen(video);
+    });
+  }
+  
+  // 双击视频也可以进入全屏（备用方式）
+  video.addEventListener('dblclick', function() {
+    toggleFullscreen(video);
+  });
+  
+  // 监听全屏变化事件，更新UI状态
+  video.addEventListener('fullscreenchange', function() {
+    updateFullscreenUI(video);
+  });
+  video.addEventListener('webkitfullscreenchange', function() {
+    updateFullscreenUI(video);
+  });
+  video.addEventListener('mozfullscreenchange', function() {
+    updateFullscreenUI(video);
+  });
+  video.addEventListener('MSFullscreenChange', function() {
+    updateFullscreenUI(video);
+  });
+}
+
+function toggleFullscreen(video) {
+  // 检查是否已经处于全屏状态
+  const isFullscreen = document.fullscreenElement || 
+                       document.webkitFullscreenElement || 
+                       document.mozFullScreenElement || 
+                       document.msFullscreenElement;
+  
+  if (isFullscreen) {
+    // 退出全屏
+    if (document.exitFullscreen) {
+      document.exitFullscreen();
+    } else if (document.webkitExitFullscreen) {
+      document.webkitExitFullscreen();
+    } else if (document.mozCancelFullScreen) {
+      document.mozCancelFullScreen();
+    } else if (document.msExitFullscreen) {
+      document.msExitFullscreen();
+    }
+  } else {
+    // 进入全屏
+    if (video.requestFullscreen) {
+      video.requestFullscreen();
+    } else if (video.webkitRequestFullscreen) {
+      video.webkitRequestFullscreen();
+    } else if (video.mozRequestFullScreen) {
+      video.mozRequestFullScreen();
+    } else if (video.msRequestFullscreen) {
+      video.msRequestFullscreen();
+    }
+  }
+}
+
+function updateFullscreenUI(video) {
+  const isFullscreen = document.fullscreenElement || 
+                       document.webkitFullscreenElement || 
+                       document.mozFullScreenElement || 
+                       document.msFullscreenElement;
+  
+  const container = video.closest('.video-embed');
+  const titleBar = container.querySelector('.video-title-bar');
+  const fullscreenBtn = container.querySelector('.fullscreen-btn');
+  
+  if (isFullscreen) {
+    // 全屏时隐藏标题栏，显示在外部
+    if (titleBar) {
+      titleBar.style.display = 'none';
+    }
+    // 更新按钮文字
+    if (fullscreenBtn) {
+      fullscreenBtn.textContent = '⛶ 退出';
+    }
+  } else {
+    // 退出全屏时恢复标题栏
+    if (titleBar) {
+      titleBar.style.display = '';
+    }
+    // 恢复按钮文字
+    if (fullscreenBtn) {
+      fullscreenBtn.textContent = '⛶ 全屏';
+    }
+  }
+}
+
+function playInlineVideo(video, videoUrl) {
+  // 检查是否支持FLV并根据URL后缀选择播放方式
+  const isFlv = videoUrl.endsWith('.flv');
+  const isM3u8 = videoUrl.endsWith('.m3u8');
+  
+  if (flvjs.isSupported() && isFlv) {
+    // 使用flv.js播放FLV
+    const parentContainer = video.closest('.video-embed');
+    let player = parentContainer._flvPlayer;
+    
+    if (!player) {
+      player = flvjs.createPlayer({
+        type: 'flv',
+        url: videoUrl
+      }, {
+        enableWorker: true,
+        enableStashBuffer: false,
+        stashInitialSize: 128
+      });
+      player.attachMediaElement(video);
+      player.load();
+      parentContainer._flvPlayer = player;
+    }
+    player.play();
+  } else if (isM3u8 && typeof Hls !== 'undefined' && Hls.isSupported()) {
+    // 使用Hls.js播放HLS
+    const parentContainer = video.closest('.video-embed');
+    let hls = parentContainer._hlsPlayer;
+    
+    if (!hls) {
+      hls = new Hls();
+      hls.loadSource(videoUrl);
+      hls.attachMedia(video);
+      parentContainer._hlsPlayer = hls;
+    }
+    hls.on(Hls.Events.MANIFEST_PARSED, function() {
+      video.play();
+    });
+  } else {
+    // 其他格式（MP4, WebM等）直接使用原生video播放
+    video.play();
+  }
+}
+
+// 初始化聊天中已有的视频
+function initChatVideos() {
+  document.querySelectorAll('.msg .bubble .video-embed').forEach(container => {
+    const video = container.querySelector('video');
+    const source = container.querySelector('source');
+    if (video && source) {
+      setupInlineVideo(container, source.src);
+    }
+  });
+}
+
+// ========== 图片查看功能 ==========
+let isImageFullscreen = false;
+
+function showImage(url, title) {
+  fullImageIframe.src = url;
+  imageViewer.classList.add('visible');
+  console.log('[showImage] 打开查看器，URL:', url);
+}
+
+function closeImageViewer() {
+  // 如果处于全屏状态，先退出全屏
+  if (isImageFullscreen) {
+    exitImageFullscreen();
+  }
+  imageViewer.classList.remove('visible');
+  fullImageIframe.src = '';
+  console.log('[closeImageViewer] 关闭查看器');
+}
+
+// 进入图片全屏
+function enterImageFullscreen() {
+  console.log('[enterImageFullscreen] 尝试进入全屏，浏览器支持:', {
+    requestFullscreen: !!imageViewer.requestFullscreen,
+    webkitRequestFullscreen: !!imageViewer.webkitRequestFullscreen,
+    mozRequestFullScreen: !!imageViewer.mozRequestFullScreen,
+    msRequestFullscreen: !!imageViewer.msRequestFullscreen
+  });
+  
+  if (imageViewer.requestFullscreen) {
+    imageViewer.requestFullscreen().then(() => {
+      console.log('[enterImageFullscreen] 进入全屏成功');
+    }).catch(err => {
+      console.log('[enterImageFullscreen] 进入全屏失败:', err);
+    });
+  } else if (imageViewer.webkitRequestFullscreen) {
+    imageViewer.webkitRequestFullscreen();
+    console.log('[enterImageFullscreen] 进入全屏(webkit)');
+  } else if (imageViewer.mozRequestFullScreen) {
+    imageViewer.mozRequestFullScreen();
+    console.log('[enterImageFullscreen] 进入全屏(moz)');
+  } else if (imageViewer.msRequestFullscreen) {
+    imageViewer.msRequestFullscreen();
+    console.log('[enterImageFullscreen] 进入全屏(ms)');
+  } else {
+    console.log('[enterImageFullscreen] 浏览器不支持全屏 API');
+  }
+  isImageFullscreen = true;
+}
+
+// 退出图片全屏
+function exitImageFullscreen() {
+  const fullscreenElement = document.fullscreenElement || 
+                           document.webkitFullscreenElement || 
+                           document.mozFullScreenElement || 
+                           document.msFullscreenElement;
+  
+  if (fullscreenElement) {
+    if (document.exitFullscreen) {
+      document.exitFullscreen();
+    } else if (document.webkitExitFullscreen) {
+      document.webkitExitFullscreen();
+    } else if (document.mozCancelFullScreen) {
+      document.mozCancelFullScreen();
+    } else if (document.msExitFullscreen) {
+      document.msExitFullscreen();
+    }
+  }
+  isImageFullscreen = false;
+}
+
+// 监听全屏变化事件，同步状态
+document.addEventListener('fullscreenchange', function() {
+  isImageFullscreen = !!(document.fullscreenElement || 
+                         document.webkitFullscreenElement || 
+                         document.mozFullScreenElement || 
+                         document.msFullscreenElement);
+});
+document.addEventListener('webkitfullscreenchange', function() {
+  isImageFullscreen = !!(document.fullscreenElement || 
+                         document.webkitFullscreenElement || 
+                         document.mozFullScreenElement || 
+                         document.msFullscreenElement);
+});
+document.addEventListener('mozfullscreenchange', function() {
+  isImageFullscreen = !!(document.fullscreenElement || 
+                         document.webkitFullscreenElement || 
+                         document.mozFullScreenElement || 
+                         document.msFullscreenElement);
+});
+document.addEventListener('MSFullscreenChange', function() {
+  isImageFullscreen = !!(document.fullscreenElement || 
+                         document.webkitFullscreenElement || 
+                         document.mozFullScreenElement || 
+                         document.msFullscreenElement);
+});
+
+// 点击图片查看大图
+function setupImageClickHandlers() {
+  console.log('[setupImageClickHandlers] 开始绑定图片点击事件');
+  
+  document.querySelectorAll('.msg .bubble .image-preview').forEach((preview, index) => {
+    const imageUrl = preview.dataset.imageUrl;
+    if (!imageUrl) {
+      console.log('[setupImageClickHandlers] 未找到imageUrl，跳过，index:', index);
+      return;
+    }
+    
+    // 防止重复绑定
+    if (preview._hasClickHandler) {
+      console.log('[setupImageClickHandlers] 已绑定，跳过，index:', index);
+      return;
+    }
+    preview._hasClickHandler = true;
+    
+    console.log('[setupImageClickHandlers] 绑定图片URL:', imageUrl);
+  });
+  
+  console.log('[setupImageClickHandlers] 绑定完成，找到图片:', document.querySelectorAll('.msg .bubble .image-preview').length);
+}
+
+// 监听 iframe 内图片的点击事件
+window.addEventListener('message', function(e) {
+  // 查找消息来源是哪个 iframe
+  let sourceIframe = null;
+  document.querySelectorAll('iframe').forEach(iframe => {
+    if (iframe.contentWindow === e.source) {
+      sourceIframe = iframe;
+    }
+  });
+  
+  if (!sourceIframe) return;
+  
+  if (e.data && e.data.type === 'image-click') {
+    console.log('[message] 收到图片点击事件');
+    
+    // 判断是否是查看器内的 iframe
+    if (sourceIframe.id === 'full-image-iframe') {
+      console.log('[message] 查看器内图片点击，忽略');
+      return;
+    }
+    
+    // 找到对应的预览容器
+    const preview = sourceIframe.closest('.image-preview');
+    if (preview) {
+      const imageUrl = preview.dataset.imageUrl;
+      if (imageUrl) {
+        showImage(imageUrl, '');
+      }
+    }
+  }
+  
+  if (e.data && e.data.type === 'image-dblclick') {
+    console.log('[message] 收到图片双击事件');
+    
+    if (isImageFullscreen) {
+      console.log('[message] 当前全屏，退出并关闭');
+      exitImageFullscreen();
+      closeImageViewer();
+    } else if (imageViewer.classList.contains('visible')) {
+      console.log('[message] 查看器已打开，进入全屏');
+      enterImageFullscreen();
+    } else {
+      console.log('[message] 查看器未打开，打开并全屏');
+      const preview = sourceIframe.closest('.image-preview');
+      if (preview) {
+        const imageUrl = preview.dataset.imageUrl;
+        if (imageUrl) {
+          showImage(imageUrl, '');
+          setTimeout(() => enterImageFullscreen(), 100);
+        }
+      }
+    }
+  }
+});
+
+// ESC键关闭图片查看器
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    if (imageViewer.classList.contains('visible')) {
+      closeImageViewer();
+    }
+  }
+});
 </script>
 </body>
 </html>

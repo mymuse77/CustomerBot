@@ -121,6 +121,65 @@ SELECT ... FROM latest_checks WHERE rn = 1
 
 例如用户说"粤"或"粤省"，应理解为"广东"，生成 `name LIKE '广东%'`。用户说"沪苏浙"，应理解为"上海、江苏、浙江"三个省份。
 
+## 视频和图片请求识别
+
+当用户请求查看**视频**或**图片**时，需要特殊处理：
+
+### 视频请求关键词（识别为视频请求）:
+- "查看视频"、"播放视频"、"看视频"
+- "我需要查看XX摄像机的视频"
+- "我需要查看在线率排第一的摄像机视频"
+- "我要看XX的实时视频"
+- 任何包含"视频"且指向具体摄像机的请求
+
+### 图片请求关键词（识别为图片请求）:
+- "查看图片"、"查看截图"、"看图片"
+- "我需要查看XX摄像机的图片"
+- "我需要查看XX摄像机的最新图片"
+- "我需要查看在线率排第一的摄像机图片"
+- "我要看XX的截图"
+- 任何包含"图片"或"截图"且指向具体摄像机的请求
+
+### 视频/图片请求的SQL生成规则
+
+对于视频/图片请求，需要生成特殊格式的SQL来返回摄像机信息：
+
+1. **如果用户指定了具体摄像机名称**：查询该摄像机并返回基本信息
+   ```sql
+   SELECT id, name, region_id, online_status, check_time 
+   FROM cameras 
+   WHERE name LIKE '%摄像机名称%'
+   LIMIT 1
+   ```
+
+2. **如果用户提到排名（如"在线率排第一"）**：
+   - "在线率排第一的摄像机" = 按在线状态降序排列的第一个（在线的）
+   - "离线率最高的摄像机" = online_status = 0 排序后取第一个
+   ```sql
+   SELECT id, name, region_id, online_status, check_time 
+   FROM cameras 
+   WHERE online_status = 1 
+   ORDER BY check_time DESC 
+   LIMIT 1
+   ```
+
+3. **如果用户没有指定具体摄像机，但请求视频/图片**：返回任意一个在线的摄像机
+   ```sql
+   SELECT id, name, region_id, online_status, check_time 
+   FROM cameras 
+   WHERE online_status = 1 
+   ORDER BY RAND() 
+   LIMIT 1
+   ```
+
+### 输出格式（视频/图片请求）
+
+当检测到是视频或图片请求时，SQL查询结果需要包含：
+- 摄像机ID (id)
+- 摄像机名称 (name)
+- 在线状态 (online_status)
+- 最后检查时间 (check_time)
+
 ## SQL 生成规则
 
 1. 只生成 SELECT 语句，绝对不要生成任何修改数据的语句
@@ -141,6 +200,24 @@ SELECT ... FROM latest_checks WHERE rn = 1
 ## 输出格式
 
 只输出纯 SQL 语句，不要包含任何解释、markdown 标记或其他文本。不要用 ```sql 包裹。
+
+## 视频/图片请求输出标记
+
+当用户请求视频或图片时，生成的SQL需要额外标记请求类型。**重要**：在生成的SQL语句后面添加注释来标记请求类型：
+
+1. **视频请求**：在SQL末尾添加 `-- VIDEO_REQUEST`
+2. **图片请求**：在SQL末尾添加 `-- IMAGE_REQUEST`
+
+示例：
+```sql
+SELECT id, name, region_id, online_status, check_time FROM cameras WHERE online_status = 1 ORDER BY RAND() LIMIT 1 -- VIDEO_REQUEST
+```
+
+```sql
+SELECT id, name, region_id, online_status, check_time FROM cameras WHERE name LIKE '%摄像头1%' LIMIT 1 -- IMAGE_REQUEST
+```
+
+这样后端可以识别请求类型并返回相应的视频/图片。
 """
 
 ANSWER_SYSTEM_PROMPT = """你是一个视频监控平台的智能数据分析助手（数字人）。请根据用户的问题和数据库查询结果，用自然、友好的中文回答用户。

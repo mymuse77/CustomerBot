@@ -10,10 +10,10 @@ from typing import Any, Optional
 from app.llm_client import llm_client
 from app.database import execute_query
 from app.prompts import (
-    SYSTEM_PROMPT,
-    ANSWER_SYSTEM_PROMPT,
-    ANSWER_USER_TEMPLATE,
-    ERROR_ANSWER_TEMPLATE,
+    get_system_prompt,
+    get_answer_system_prompt,
+    format_answer_prompt,
+    format_error_prompt,
 )
 from app.config import get_primary_video_url, get_all_video_urls
 from app.models import MediaContent
@@ -164,7 +164,7 @@ async def process_question(question: str) -> dict[str, Any]:
     try:
         # 第 1 步：生成 SQL
         logger.info(f"用户问题: {question}")
-        generated_sql = await llm_client.generate_sql(question, SYSTEM_PROMPT)
+        generated_sql = await llm_client.generate_sql(question, get_system_prompt())
         logger.info(f"生成 SQL: {generated_sql}")
 
         # 检测是否为视频/图片请求
@@ -189,13 +189,13 @@ async def process_question(question: str) -> dict[str, Any]:
 
         # 第 3 步：生成自然语言回答
         if query_result["success"]:
-            result_text = ANSWER_USER_TEMPLATE.format(
+            result_text = format_answer_prompt(
                 question=question,
                 result=_format_query_result(query_result),
             )
             answer = await llm_client.generate_answer(
                 question=question,
-                system_prompt=ANSWER_SYSTEM_PROMPT,
+                system_prompt=get_answer_system_prompt(),
                 result_text=result_text,
             )
 
@@ -225,13 +225,13 @@ async def process_question(question: str) -> dict[str, Any]:
             }
         else:
             # SQL 执行失败，让 LLM 生成友好的错误提示
-            error_text = ERROR_ANSWER_TEMPLATE.format(
+            error_text = format_error_prompt(
                 question=question,
                 error=query_result["error"],
             )
             answer = await llm_client.generate_answer(
                 question=question,
-                system_prompt=ANSWER_SYSTEM_PROMPT,
+                system_prompt=get_answer_system_prompt(),
                 result_text=error_text,
             )
             return {

@@ -1,0 +1,22 @@
+# 前端交互展示文案模板
+ui:
+  # 携带视频的回答前缀，支持 {camera_name} 和 {camera_id} 变量
+  video_prefix: "**📹 视频播放：{camera_name} (ID: {camera_id})**\n\n"
+  
+  # 携带截图的回答前缀，支持 {camera_name} 和 {camera_id} 变量
+  image_prefix: "**🖼️ 截图预览：{camera_name} (ID: {camera_id})**\n\n"
+  
+  # SQL成功执行但结果集为空时的提示
+  empty_result: "查询成功，但没有返回任何数据。"
+  
+  # SQL执行报错时的原始错误附加提示，支持 {error} 变量
+  query_error: "查询失败: {error}"
+  
+  # 发生不可预知异常（如网络问题、解析异常等）时的兜底提示，支持 {error} 变量
+  system_error: "抱歉，处理您的问题时遇到了技术问题：{error}。请稍后再试或换一种方式提问。"
+  
+  # 返回表格数据时的总数汇总前缀，支持 {row_count} 变量
+  summary_total: "共返回 {row_count} 条记录："
+  
+  # 表格数据超过最大展示行数(max_display_rows)被截断时的尾部提示，支持 {more_count} 变量
+  summary_more: "... 还有 {more_count} 条记录未显示"

@@ -15,7 +15,12 @@ from app.prompts import (
     format_answer_prompt,
     format_error_prompt,
 )
-from app.config import get_primary_video_url, get_all_video_urls
+from app.config import (
+    get_primary_video_url,
+    get_all_video_urls,
+    get_app_config,
+    get_message_template,
+)
 from app.models import MediaContent
 
 logger = logging.getLogger(__name__)
@@ -75,9 +80,11 @@ def _generate_video_response(
     )
 
     # 更新回答文本
-    video_answer = (
-        f"**📹 视频播放：{camera_info['name']} (ID: {camera_info['id']})**\n\n" + answer
-    )
+    video_prefix = get_message_template("video_prefix", camera_name=camera_info["name"], camera_id=camera_info["id"])
+    if not video_prefix:
+        video_prefix = f"**📹 视频播放：{camera_info['name']} (ID: {camera_info['id']})**\n\n"
+    
+    video_answer = video_prefix + answer
 
     return video_answer, media
 
@@ -86,8 +93,10 @@ def _generate_image_response(
     camera_info: dict, answer: str
 ) -> tuple[str, Optional[MediaContent]]:
     """生成图片响应"""
-    # 生成随机截图时间点（5-30秒之间的随机值，模拟从视频中随机截取）
-    random_time = round(random.uniform(5.0, 30.0), 2)
+    # 生成随机截图时间点
+    min_time = get_app_config("business.random_screenshot_min_time", 5.0)
+    max_time = get_app_config("business.random_screenshot_max_time", 30.0)
+    random_time = round(random.uniform(min_time, max_time), 2)
 
     # 图片URL使用base64格式的截图API，直接返回图片数据
     video_url = get_primary_video_url()
@@ -103,9 +112,11 @@ def _generate_image_response(
     )
 
     # 更新回答文本
-    image_answer = (
-        f"**🖼️ 截图预览：{camera_info['name']} (ID: {camera_info['id']})**\n\n" + answer
-    )
+    image_prefix = get_message_template("image_prefix", camera_name=camera_info["name"], camera_id=camera_info["id"])
+    if not image_prefix:
+         image_prefix = f"**🖼️ 截图预览：{camera_info['name']} (ID: {camera_info['id']})**\n\n"
+
+    image_answer = image_prefix + answer
 
     return image_answer, media
 
@@ -113,28 +124,39 @@ def _generate_image_response(
 def _format_query_result(result: dict[str, Any]) -> str:
     """将查询结果格式化为文本，供 LLM 生成回答"""
     if not result["success"]:
-        return f"查询失败: {result['error']}"
+        error_msg = get_message_template("query_error", error=result["error"])
+        return error_msg if error_msg else f"查询失败: {result['error']}"
 
     if result["row_count"] == 0:
-        return "查询成功，但没有返回任何数据。"
+        empty_msg = get_message_template("empty_result")
+        return empty_msg if empty_msg else "查询成功，但没有返回任何数据。"
 
     # 格式化为表格文本
     rows = result["rows"]
     columns = result["columns"]
+    max_rows = get_app_config("business.max_display_rows", 50)
 
-    lines = [f"共返回 {result['row_count']} 条记录：", ""]
+    summary_msg = get_message_template("summary_total", row_count=result['row_count'])
+    if not summary_msg:
+        summary_msg = f"共返回 {result['row_count']} 条记录："
+    
+    lines = [summary_msg, ""]
 
     # 表头
     lines.append(" | ".join(str(c) for c in columns))
     lines.append("-" * 60)
 
-    # 数据行（最多展示 50 行避免 token 爆炸）
-    display_rows = rows[:50]
+    # 数据行
+    display_rows = rows[:max_rows]
     for row in display_rows:
         lines.append(" | ".join(str(row.get(c, "")) for c in columns))
 
-    if len(rows) > 50:
-        lines.append(f"... 还有 {len(rows) - 50} 条记录未显示")
+    if len(rows) > max_rows:
+        more_count = len(rows) - max_rows
+        more_msg = get_message_template("summary_more", more_count=more_count)
+        if not more_msg:
+            more_msg = f"... 还有 {more_count} 条记录未显示"
+        lines.append(more_msg)
 
     return "\n".join(lines)
 
@@ -245,8 +267,11 @@ async def process_question(question: str) -> dict[str, Any]:
 
     except Exception as e:
         logger.exception("Text2SQL 管道异常")
+        sys_err = get_message_template("system_error", error=str(e))
+        if not sys_err:
+             sys_err = f"抱歉，处理您的问题时遇到了技术问题：{str(e)}。请稍后再试或换一种方式提问。"
         return {
-            "answer": f"抱歉，处理您的问题时遇到了技术问题：{str(e)}。请稍后再试或换一种方式提问。",
+            "answer": sys_err,
             "sql": generated_sql,
             "data": None,
             "success": False,

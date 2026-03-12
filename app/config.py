@@ -33,6 +33,48 @@ def get_all_video_urls() -> list:
     return FLV_VIDEO_URLS
 
 
+# ---------------------------------------------------------
+# 基于配置管理器的热重载配置访问
+# ---------------------------------------------------------
+
+import logging
+from typing import Any
+from app.config_manager import get_config_manager
+
+logger = logging.getLogger(__name__)
+
+# 配置管理器实例
+_manager = get_config_manager()
+
+def get_app_config(key_path: str, default: Any = None) -> Any:
+    """获取 app_config.yaml 中的配置项，支持点号分隔路径 (如 'app.title')"""
+    try:
+        config = _manager.get_config("app_config.yaml")
+        keys = key_path.split('.')
+        val = config
+        for k in keys:
+            if isinstance(val, dict) and k in val:
+                val = val[k]
+            else:
+                return default
+        return val
+    except Exception as e:
+        logger.warning(f"Failed to read '{key_path}' from app_config.yaml: {e}")
+        return default
+
+def get_message_template(key: str, **kwargs) -> str:
+    """获取 messages.yaml 中的 ui 文案并格式化"""
+    try:
+        config = _manager.get_config("messages.yaml")
+        template = config.get("ui", {}).get(key, "")
+        if template and kwargs:
+            return template.format(**kwargs)
+        return template
+    except Exception as e:
+        logger.warning(f"Failed to load UI message '{key}': {e}")
+        return ""
+
+
 # 数据库表结构描述（供 Text2SQL 使用）
 DB_SCHEMA = """
 数据库: spkf (MySQL)

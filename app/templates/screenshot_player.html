@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>截图 - {{ camera_name }}</title>
+    <style>
+        body { 
+            margin: 0; 
+            padding: 20px; 
+            background: #1a1a1a; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center;
+            min-height: 100vh;
+        }
+        #video-container {
+            position: relative;
+            max-width: 100%;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        video {
+            display: block;
+            max-width: 100%;
+            max-height: 60vh;
+        }
+        #canvas {
+            display: none;
+        }
+        #output {
+            margin-top: 20px;
+            text-align: center;
+        }
+        #output img {
+            max-width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+        .info {
+            color: #fff;
+            margin-bottom: 10px;
+            font-family: Arial, sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <div class="info">
+        <h2>📷 {{ camera_name }} (ID: {{ camera_id }})</h2>
+        <p>正在加载视频并截取 {{ timestamp }} 秒处的画面...</p>
+    </div>
+    <div id="video-container">
+        <video id="video" controls crossorigin="anonymous">
+            <source src="{{ video_url }}" type="{{ video_type }}">
+        </video>
+    </div>
+    <canvas id="canvas"></canvas>
+    <div id="output">
+        <img id="screenshot" alt="截图">
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/flv.js@1.6.2/dist/flv.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const screenshot = document.getElementById('screenshot');
+        const videoUrl = '{{ video_url }}';
+        const timestamp = {{ timestamp }};
+        
+        const isFlv = videoUrl.endsWith('.flv');
+        const isM3u8 = videoUrl.endsWith('.m3u8');
+        
+        if (isFlv && flvjs.isSupported()) {
+            const flvPlayer = flvjs.createPlayer({
+                type: 'flv',
+                url: videoUrl
+            }, {
+                enableWorker: true,
+                enableStashBuffer: false,
+                stashInitialSize: 128
+            });
+            flvPlayer.attachMediaElement(video);
+            flvPlayer.load();
+            flvPlayer.play();
+            
+            video.addEventListener('loadeddata', function() {
+                video.currentTime = timestamp;
+            });
+            
+            video.addEventListener('seeked', function() {
+                captureFrame();
+            });
+            
+            setTimeout(() => {
+                if (video.readyState >= 2 && video.currentTime < 0.1) {
+                    captureFrame();
+                }
+            }, 3000);
+        } else if (isM3u8 && Hls.isSupported()) {
+            const hls = new Hls();
+            hls.loadSource(videoUrl);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                video.currentTime = timestamp;
+                video.play();
+            });
+            
+            video.addEventListener('seeked', function() {
+                captureFrame();
+            });
+            
+            setTimeout(() => {
+                if (video.readyState >= 2 && video.currentTime < 0.1) {
+                    captureFrame();
+                }
+            }, 3000);
+        } else {
+            video.addEventListener('loadeddata', function() {
+                video.currentTime = timestamp;
+            });
+            
+            video.addEventListener('seeked', function() {
+                captureFrame();
+            });
+            
+            setTimeout(() => {
+                captureFrame();
+            }, 3000);
+        }
+        
+        function captureFrame() {
+            try {
+                canvas.width = video.videoWidth || 640;
+                canvas.height = video.videoHeight || 360;
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                screenshot.src = dataUrl;
+                console.log('Screenshot captured at', video.currentTime, 'seconds');
+                document.querySelector('.info p').textContent = 
+                    '截图成功！时间点: ' + video.currentTime.toFixed(2) + '秒';
+            } catch (e) {
+                document.querySelector('.info p').textContent = 
+                    '截图失败: ' + e.message + '（可能是跨域限制）';
+                console.error(e);
+            }
+        }
+    </script>
+</body>
+</html>

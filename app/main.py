@@ -8,13 +8,15 @@ import tempfile
 import urllib.parse
 from pathlib import Path
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.templating import Jinja2Templates
 
 from app.models import ChatRequest, ChatResponse, HealthResponse
 from app.text2sql import process_question
 from app.database import test_connection
+from app.config import get_app_config
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,14 +24,18 @@ logging.basicConfig(
 )
 
 app = FastAPI(
-    title="视频监控数字人",
-    description="基于 Text2SQL + LLM 的视频监控平台智能问答系统",
-    version="1.1.0",
+    title=get_app_config("app.title", "视频监控数字人"),
+    description=get_app_config("app.description", "基于 Text2SQL + LLM 的视频监控平台智能问答系统"),
+    version=get_app_config("app.version", "1.1.0"),
 )
 
 # 挂载静态文件
 static_dir = Path(__file__).parent.parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+# 挂载模板文件
+templates_dir = Path(__file__).parent / "templates"
+templates = Jinja2Templates(directory=str(templates_dir))
 
 
 @app.get("/", response_class=FileResponse)
@@ -62,6 +68,7 @@ async def chat(req: ChatRequest):
 
 @app.get("/api/screenshot")
 async def get_screenshot(
+    request: Request,
     video_url: str = Query(..., description="视频URL"),
     timestamp: float = Query(..., description="截图时间点（秒）"),
     camera_id: int = Query(..., description="摄像机ID"),
@@ -74,6 +81,8 @@ async def get_screenshot(
     format=base64: 直接返回 base64 图片数据（供 <img src="data:image/jpeg;base64,..."> 使用）
     format=html: 返回视频播放器HTML页面，由前端JS执行实际截图（默认，兼容性更好）
     """
+    
+    timeout_sec = get_app_config("business.screenshot_timeout", 60)
 
     # 如果请求 base64 格式，使用服务器端截图直接返回 base64
     if format == "base64":
@@ -127,7 +136,7 @@ async def get_screenshot(
                     tmp_path,
                 ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec)
 
             if result.returncode == 0 and os.path.exists(tmp_path):
                 with open(tmp_path, "rb") as f:
@@ -142,46 +151,23 @@ async def get_screenshot(
                 logging.info(f"[Screenshot] 截图成功，图片大小: {len(img_data)} bytes")
 
                 # 返回包含 base64 图片的 HTML
-                img_html = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>截图</title>
-    <style>
-        body {{ margin: 0; padding: 0; background: #000; display: flex; justify-content: center; align-items: center; min-height: 100vh; }}
-        img {{ max-width: 100%; max-height: 100vh; object-fit: contain; cursor: pointer; }}
-    </style>
-</head>
-<body>
-    <img src="data:image/jpeg;base64,{b64_img}" alt="截图" onclick="window.parent.postMessage({{type:'image-click'}}, '*')" ondblclick="window.parent.postMessage({{type:'image-dblclick'}}, '*')">
-    <script>
-        // ESC键通知父窗口关闭
-        document.addEventListener('keydown', function(e) {{
-            if (e.key === 'Escape') {{
-                window.parent.postMessage({{type:'esc-close'}}, '*');
-            }}
-        }});
-        // 点击空白处关闭
-        document.addEventListener('click', function(e) {{
-            if (e.target.tagName !== 'IMG') {{
-                window.parent.postMessage({{type:'esc-close'}}, '*');
-            }}
-        }});
-    </script>
-</body>
-</html>"""
-                return HTMLResponse(content=img_html)
+                return templates.TemplateResponse(
+                    "screenshot_base64.html",
+                    {"request": request, "b64_img": b64_img}
+                )
             else:
                 error_msg = result.stderr[:500] if result.stderr else "截图失败"
                 logging.error(f"[Screenshot] 失败: {error_msg}")
-                return HTMLResponse(
-                    content=f"<div style='color:#f44336;padding:20px;'>截图失败: {error_msg}</div>"
+                return templates.TemplateResponse(
+                    "screenshot_error.html",
+                    {"request": request, "error_title": "截图失败", "error_msg": error_msg}
                 )
 
         except Exception as e:
             logging.error(f"[Screenshot] 异常: {str(e)}")
-            return HTMLResponse(
-                content=f"<div style='color:#f44336;padding:20px;'>截图异常: {str(e)}</div>"
+            return templates.TemplateResponse(
+                "screenshot_error.html",
+                {"request": request, "error_title": "截图异常", "error_msg": str(e)}
             )
 
     # ========================================
@@ -251,7 +237,7 @@ async def get_screenshot(
         logging.info(f"[Screenshot] 执行命令: {' '.join(cmd[:8])}...")
 
         # 执行 ffmpeg
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec)
 
         if result.returncode == 0 and os.path.exists(tmp_path):
             # 读取截图并返回 base64
@@ -267,52 +253,35 @@ async def get_screenshot(
 
             logging.info(f"[Screenshot] 截图成功，图片大小: {len(img_data)} bytes")
 
-            # 返回 base64 图片
-            img_html = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>截图</title>
-    <style>
-        body {{ margin: 0; background: #000; display: flex; justify-content: center; align-items: center; min-height: 100vh; }}
-        img {{ max-width: 100%; max-height: 90vh; }}
-    </style>
-</head>
-<body>
-    <img src="data:image/jpeg;base64,{b64_img}" alt="截图">
-</body>
-</html>"""
-            return HTMLResponse(content=img_html)
+            # 返回 base64 图片 (重用 base64 模板)
+            return templates.TemplateResponse(
+                "screenshot_base64.html",
+                {"request": request, "b64_img": b64_img}
+            )
         else:
             # ffmpeg 失败，记录详细错误
             error_msg = result.stderr[:800] if result.stderr else "未知错误"
             logging.error(f"[Screenshot] ffmpeg 失败: {error_msg}")
-            return HTMLResponse(
-                content=f"""
-<html><body style="color:#f44336;font-family:Arial;padding:20px;text-align:center;">
-❌ 截图失败<br><br>
-<small style="color:#666;">{error_msg[:300]}...</small>
-</body></html>"""
+            return templates.TemplateResponse(
+                "screenshot_error.html",
+                {"request": request, "error_title": "截图失败", "error_msg": error_msg}
             )
 
     except subprocess.TimeoutExpired:
         logging.error("[Screenshot] 截图超时")
-        return HTMLResponse(
-            content="""
-<html><body style="color:#f44336;font-family:Arial;padding:20px;text-align:center;">
-❌ 截图超时，视频可能无法访问或太大
-</body></html>""",
-            status_code=500,
+        return templates.TemplateResponse(
+            "screenshot_error.html",
+            {"request": request, "error_title": "截图超时", "error_msg": "视频可能无法访问或太大"},
+            status_code=500
         )
     except Exception as e:
         logging.exception("[Screenshot] 截图异常")
-        return HTMLResponse(
-            content=f"""
-<html><body style="color:#f44336;font-family:Arial;padding:20px;text-align:center;">
-❌ 截图异常: {str(e)}
-</body></html>""",
-            status_code=500,
+        return templates.TemplateResponse(
+            "screenshot_error.html",
+            {"request": request, "error_title": "截图异常", "error_msg": str(e)},
+            status_code=500
         )
+        
     decoded_camera_name = urllib.parse.unquote(camera_name)
 
     # 动态检测视频MIME类型
@@ -325,172 +294,14 @@ async def get_screenshot(
     else:
         video_type = "video/mp4"  # 默认MP4
 
-    # JavaScript脚本（作为普通字符串，不使用f-string转义）
-    js_script = """
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        const screenshot = document.getElementById('screenshot');
-        const videoUrl = 'VIDEO_URL_PLACEHOLDER';
-        const timestamp = TIMESTAMP_PLACEHOLDER;
-        
-        const isFlv = videoUrl.endsWith('.flv');
-        const isM3u8 = videoUrl.endsWith('.m3u8');
-        
-        if (isFlv && flvjs.isSupported()) {
-            const flvPlayer = flvjs.createPlayer({
-                type: 'flv',
-                url: videoUrl
-            }, {
-                enableWorker: true,
-                enableStashBuffer: false,
-                stashInitialSize: 128
-            });
-            flvPlayer.attachMediaElement(video);
-            flvPlayer.load();
-            flvPlayer.play();
-            
-            video.addEventListener('loadeddata', function() {
-                video.currentTime = timestamp;
-            });
-            
-            video.addEventListener('seeked', function() {
-                captureFrame();
-            });
-            
-            setTimeout(() => {
-                if (video.readyState >= 2 && video.currentTime < 0.1) {
-                    captureFrame();
-                }
-            }, 3000);
-        } else if (isM3u8 && Hls.isSupported()) {
-            const hls = new Hls();
-            hls.loadSource(videoUrl);
-            hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, function() {
-                video.currentTime = timestamp;
-                video.play();
-            });
-            
-            video.addEventListener('seeked', function() {
-                captureFrame();
-            });
-            
-            setTimeout(() => {
-                if (video.readyState >= 2 && video.currentTime < 0.1) {
-                    captureFrame();
-                }
-            }, 3000);
-        } else {
-            video.addEventListener('loadeddata', function() {
-                video.currentTime = timestamp;
-            });
-            
-            video.addEventListener('seeked', function() {
-                captureFrame();
-            });
-            
-            setTimeout(() => {
-                captureFrame();
-            }, 3000);
+    return templates.TemplateResponse(
+        "screenshot_player.html",
+        {
+            "request": request,
+            "camera_name": decoded_camera_name,
+            "camera_id": camera_id,
+            "timestamp": timestamp,
+            "video_url": decoded_video_url,
+            "video_type": video_type
         }
-        
-        function captureFrame() {
-            try {
-                canvas.width = video.videoWidth || 640;
-                canvas.height = video.videoHeight || 360;
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-                screenshot.src = dataUrl;
-                console.log('Screenshot captured at', video.currentTime, 'seconds');
-                document.querySelector('.info p').textContent = 
-                    '截图成功！时间点: ' + video.currentTime.toFixed(2) + '秒';
-            } catch (e) {
-                document.querySelector('.info p').textContent = 
-                    '截图失败: ' + e.message + '（可能是跨域限制）';
-                console.error(e);
-            }
-        }
-    """
-
-    # 替换占位符
-    js_script = js_script.replace("VIDEO_URL_PLACEHOLDER", decoded_video_url)
-    js_script = js_script.replace("TIMESTAMP_PLACEHOLDER", str(timestamp))
-
-    # 构建HTML内容（使用普通字符串拼接）
-    html_content = (
-        """<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>截图 - """
-        + decoded_camera_name
-        + """</title>
-    <style>
-        body { 
-            margin: 0; 
-            padding: 20px; 
-            background: #1a1a1a; 
-            display: flex; 
-            flex-direction: column; 
-            align-items: center;
-            min-height: 100vh;
-        }
-        #video-container {
-            position: relative;
-            max-width: 100%;
-            background: #000;
-            border-radius: 8px;
-            overflow: hidden;
-        }
-        video {
-            display: block;
-            max-width: 100%;
-            max-height: 60vh;
-        }
-        #canvas {
-            display: none;
-        }
-        #output {
-            margin-top: 20px;
-            text-align: center;
-        }
-        #output img {
-            max-width: 100%;
-            border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-        }
-        .info {
-            color: #fff;
-            margin-bottom: 10px;
-            font-family: Arial, sans-serif;
-        }
-    </style>
-</head>
-<body>
-    <div class="info">
-        <h2>📷 """
-        + decoded_camera_name
-        + """ (ID: """
-        + str(camera_id)
-        + """)</h2>
-        <p>正在加载视频并截取 """
-        + str(timestamp)
-        + """ 秒处的画面...</p>
-    </div>
-    <div id="video-container">
-        <video id="video" controls crossorigin="anonymous">
-            <source src=\""""
-        + decoded_video_url
-        + '" type="'
-        + video_type
-        + '">\n        </video>\n    </div>\n    <canvas id="canvas"></canvas>\n    <div id="output">\n        <img id="screenshot" alt="截图">\n    </div>\n    \n    <script src="https://cdn.jsdelivr.net/npm/flv.js@1.6.2/dist/flv.min.js"></script>\n    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>\n    <script>\n'
-        ""
-        + js_script
-        + """
-    </script>
-</body>
-</html>
-"""
     )
-    return HTMLResponse(content=html_content)

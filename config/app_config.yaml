@@ -1,0 +1,12 @@
+# 应用基础元信息
+app:
+  title: "视频监控数字人"  # FastAPI应用名称
+  description: "基于 Text2SQL + LLM 的视频监控平台智能问答系统"  # FastAPI应用描述
+  version: "1.1.0"  # FastAPI应用版本号
+
+# 业务规则与阈值配置
+business:
+  max_display_rows: 50  # 聊天页面中最多展示的表格数据行数，超出部分截断
+  screenshot_timeout: 60  # 调用 ffmpeg 截图时的最大超时时间（秒）
+  random_screenshot_min_time: 5.0  # 图片请求时，随机截取封面的最小时间点（秒）
+  random_screenshot_max_time: 30.0  # 图片请求时，随机截取封面的最大时间点（秒）

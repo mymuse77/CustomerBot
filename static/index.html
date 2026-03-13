@@ -274,6 +274,39 @@
     100% { box-shadow: 0 0 0 0 rgba(234,67,53,0); }
   }
 
+  /* ===== SenseVoice 云端语音按钮 ===== */
+  #senseVoiceBtn {
+    width: 38px; height: 38px;
+    border: none;
+    background: linear-gradient(135deg, #1a73e8 0%, #4285f4 100%);
+    color: #fff;
+    border-radius: 50%;
+    font-size: 18px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .25s ease;
+    flex-shrink: 0;
+    position: relative;
+  }
+  #senseVoiceBtn:hover { background: linear-gradient(135deg, #1557b0 0%, #1a73e8 100%); }
+  #senseVoiceBtn.recording {
+    background: #ea4335;
+    animation: senseVoicePulse 1s ease-in-out infinite;
+  }
+  #senseVoiceBtn.loading {
+    background: #fbbc04;
+    cursor: wait;
+  }
+  #senseVoiceBtn.disabled-mic {
+    background: #bbb;
+    cursor: not-allowed;
+  }
+  @keyframes senseVoicePulse {
+    0%   { box-shadow: 0 0 0 0 rgba(26,115,232,.5); }
+    70%  { box-shadow: 0 0 0 10px rgba(26,115,232,0); }
+    100% { box-shadow: 0 0 0 0 rgba(26,115,232,0); }
+  }
+
   /* 语音状态提示 */
   .voice-status {
     padding: 4px 14px;
@@ -527,7 +560,8 @@
   <div class="input-area">
     <textarea id="input" rows="1" placeholder="输入问题，如：某区域下离线Top3的子区域？"
       onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"></textarea>
-    <button id="micBtn" title="语音输入（点击开始/结束录音）">🎙️</button>
+    <button id="micBtn" title="语音输入 - 本地Whisper（点击开始/结束录音）">🎙️</button>
+    <button id="senseVoiceBtn" title="语音输入 - 本地SenseVoice（点击开始/结束录音）">🎤</button>
     <button id="sendBtn" onclick="send()">➤</button>
   </div>
 </div>
@@ -1308,6 +1342,157 @@ micBtn.addEventListener('click', () => {
     stopRecording();
   } else {
     startRecording();
+  }
+});
+
+// ===== SenseVoice 云端语音识别 =====
+const senseVoiceBtn = document.getElementById('senseVoiceBtn');
+let isSenseVoiceRecording = false;
+let senseVoiceMediaRecorder = null;
+let senseVoiceAudioChunks = [];
+let senseVoiceAudioStream = null;
+
+/**
+ * 开始 SenseVoice 录音
+ */
+async function startSenseVoiceRecording() {
+  try {
+    senseVoiceAudioStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        sampleRate: 16000,
+        echoCancellation: true,
+        noiseSuppression: true,
+      }
+    });
+  } catch (err) {
+    console.error('[SenseVoice] 麦克风权限被拒绝:', err);
+    voiceStatusText.textContent = '⚠️ 需要麦克风权限才能使用语音输入';
+    voiceStatusEl.classList.add('visible');
+    setTimeout(() => voiceStatusEl.classList.remove('visible'), 3000);
+    return;
+  }
+
+  senseVoiceAudioChunks = [];
+  senseVoiceMediaRecorder = new MediaRecorder(senseVoiceAudioStream, { mimeType: getSupportedMimeType() });
+
+  senseVoiceMediaRecorder.addEventListener('dataavailable', (e) => {
+    if (e.data.size > 0) senseVoiceAudioChunks.push(e.data);
+  });
+
+  senseVoiceMediaRecorder.addEventListener('stop', async () => {
+    const blob = new Blob(senseVoiceAudioChunks, { type: senseVoiceMediaRecorder.mimeType });
+    console.log('[SenseVoice] 录音结束，Blob大小:', blob.size, '类型:', blob.type);
+    await processSenseVoiceAudio(blob);
+  });
+
+  senseVoiceMediaRecorder.start();
+  isSenseVoiceRecording = true;
+  senseVoiceBtn.classList.add('recording');
+  senseVoiceBtn.title = '正在录音中，点击停止';
+  voiceStatusText.textContent = '🎤 正在录音 (SenseVoice)，点击按钮停止...';
+  voiceStatusEl.classList.add('visible');
+  console.log('[SenseVoice] 开始录音');
+}
+
+/**
+ * 停止 SenseVoice 录音
+ */
+function stopSenseVoiceRecording() {
+  if (senseVoiceMediaRecorder && senseVoiceMediaRecorder.state !== 'inactive') {
+    senseVoiceMediaRecorder.stop();
+  }
+  senseVoiceBtn.classList.remove('recording');
+  senseVoiceBtn.classList.add('loading');
+  senseVoiceBtn.title = '正在识别...';
+  voiceStatusText.textContent = '☁️ 正在云端识别，请稍候...';
+  console.log('[SenseVoice] 停止录音，等待处理');
+}
+
+/**
+ * 处理 SenseVoice 音频并发送到后端
+ */
+async function processSenseVoiceAudio(blob) {
+  try {
+    // 创建 FormData
+    const formData = new FormData();
+    
+    // 根据 blob 类型选择正确的文件扩展名
+    let filename = 'recording';
+    let mimeType = blob.type || 'audio/webm';
+    
+    if (mimeType.includes('webm')) {
+      filename += '.webm';
+    } else if (mimeType.includes('mp4')) {
+      filename += '.mp4';
+    } else if (mimeType.includes('ogg')) {
+      filename += '.ogg';
+    } else if (mimeType.includes('wav')) {
+      filename += '.wav';
+    } else if (mimeType.includes('mp3') || mimeType.includes('mpeg')) {
+      filename += '.mp3';
+    } else {
+      // 默认使用 webm
+      filename += '.webm';
+      mimeType = 'audio/webm';
+    }
+    
+    console.log('[SenseVoice] 发送音频:', filename, '类型:', mimeType, '大小:', blob.size);
+    formData.append('audio', blob, filename);
+
+    // 发送请求
+    const response = await fetch('/api/sensevoice/transcribe', {
+      method: 'POST',
+      body: formData,
+    });
+
+    const data = await response.json();
+
+    if (data.success && data.text) {
+      // 将识别文字填入输入框
+      inputEl.value = data.text;
+      inputEl.style.height = 'auto';
+      inputEl.style.height = Math.min(inputEl.scrollHeight, 100) + 'px';
+      inputEl.focus();
+      console.log('[SenseVoice] 识别结果:', data.text);
+    } else {
+      voiceStatusText.textContent = '⚠️ ' + (data.error || '识别失败，请重试');
+      voiceStatusEl.classList.add('visible');
+      setTimeout(() => voiceStatusEl.classList.remove('visible'), 3000);
+    }
+  } catch (err) {
+    console.error('[SenseVoice] 上传失败:', err);
+    voiceStatusText.textContent = '⚠️ 网络错误，请检查服务是否启动';
+    voiceStatusEl.classList.add('visible');
+    setTimeout(() => voiceStatusEl.classList.remove('visible'), 3000);
+  } finally {
+    resetSenseVoiceRecordingState();
+  }
+}
+
+/**
+ * 重置 SenseVoice 录音状态
+ */
+function resetSenseVoiceRecordingState() {
+  isSenseVoiceRecording = false;
+  senseVoiceBtn.classList.remove('recording');
+  senseVoiceBtn.classList.remove('loading');
+  senseVoiceBtn.title = '语音输入 - 云端SenseVoice（点击开始/结束录音）';
+  voiceStatusEl.classList.remove('visible');
+  if (senseVoiceAudioStream) {
+    senseVoiceAudioStream.getTracks().forEach(t => t.stop());
+    senseVoiceAudioStream = null;
+  }
+}
+
+// -------- SenseVoice 按钮点击事件 --------
+senseVoiceBtn.addEventListener('click', () => {
+  if (senseVoiceBtn.classList.contains('disabled-mic')) return;
+
+  if (isSenseVoiceRecording) {
+    stopSenseVoiceRecording();
+  } else {
+    startSenseVoiceRecording();
   }
 });
 

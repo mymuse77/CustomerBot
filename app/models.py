@@ -46,6 +46,9 @@ class HealthResponse(BaseModel):
 
     status: str
     db_connected: bool
+    sensevoice_connected: Optional[bool] = Field(
+        None, description="SenseVoice 服务连接状态"
+    )
 
 
 class ScreenshotRequest(BaseModel):

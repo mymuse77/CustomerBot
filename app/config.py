@@ -14,6 +14,11 @@ DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
 
+# SenseVoice 本地服务配置
+SENSEVOICE_SERVICE_URL = os.environ.get(
+    "SENSEVOICE_SERVICE_URL", "http://localhost:8000"
+)
+
 # 视频FLV源配置（主源 + 备选源）
 # 注意：截图功能需要视频服务器支持 CORS 头部 (Access-Control-Allow-Origin)
 FLV_VIDEO_URLS = [
@@ -46,11 +51,12 @@ logger = logging.getLogger(__name__)
 # 配置管理器实例
 _manager = get_config_manager()
 
+
 def get_app_config(key_path: str, default: Any = None) -> Any:
     """获取 app_config.yaml 中的配置项，支持点号分隔路径 (如 'app.title')"""
     try:
         config = _manager.get_config("app_config.yaml")
-        keys = key_path.split('.')
+        keys = key_path.split(".")
         val = config
         for k in keys:
             if isinstance(val, dict) and k in val:
@@ -61,6 +67,7 @@ def get_app_config(key_path: str, default: Any = None) -> Any:
     except Exception as e:
         logger.warning(f"Failed to read '{key_path}' from app_config.yaml: {e}")
         return default
+
 
 def get_message_template(key: str, **kwargs) -> str:
     """获取 messages.yaml 中的 ui 文案并格式化"""

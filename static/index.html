@@ -211,6 +211,7 @@
     display: flex;
     gap: 8px;
     flex-shrink: 0;
+    align-items: flex-end;
   }
   .input-area textarea {
     flex: 1;
@@ -239,6 +240,65 @@
   }
   .input-area button:hover { background: #1557b0; }
   .input-area button:disabled { background: #bbb; cursor: not-allowed; }
+
+  /* ===== 语音按钮 ===== */
+  #micBtn {
+    width: 38px; height: 38px;
+    border: none;
+    background: #34a853;
+    color: #fff;
+    border-radius: 50%;
+    font-size: 18px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .25s ease;
+    flex-shrink: 0;
+    position: relative;
+  }
+  #micBtn:hover { background: #2d8e47; }
+  #micBtn.recording {
+    background: #ea4335;
+    animation: micPulse 1s ease-in-out infinite;
+  }
+  #micBtn.loading {
+    background: #fbbc04;
+    cursor: wait;
+  }
+  #micBtn.disabled-mic {
+    background: #bbb;
+    cursor: not-allowed;
+  }
+  @keyframes micPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(234,67,53,.5); }
+    70%  { box-shadow: 0 0 0 10px rgba(234,67,53,0); }
+    100% { box-shadow: 0 0 0 0 rgba(234,67,53,0); }
+  }
+
+  /* 语音状态提示 */
+  .voice-status {
+    padding: 4px 14px;
+    background: #fff;
+    font-size: 11px;
+    color: #666;
+    text-align: center;
+    flex-shrink: 0;
+    display: none;
+  }
+  .voice-status.visible { display: block; }
+  .voice-status .progress-bar {
+    height: 3px;
+    background: #e0e0e0;
+    border-radius: 2px;
+    margin-top: 4px;
+    overflow: hidden;
+  }
+  .voice-status .progress-bar .progress-fill {
+    height: 100%;
+    background: #1a73e8;
+    border-radius: 2px;
+    transition: width .3s;
+    width: 0%;
+  }
 
   /* 打字动画 */
   .typing .dot {
@@ -460,9 +520,14 @@
     <button onclick="askQuestion(this.textContent)">我需要查看在线摄像机的图片</button>
   </div>
 
+  <div class="voice-status" id="voiceStatus">
+    <span id="voiceStatusText">正在加载语音识别模型...</span>
+    <div class="progress-bar"><div class="progress-fill" id="voiceProgress"></div></div>
+  </div>
   <div class="input-area">
     <textarea id="input" rows="1" placeholder="输入问题，如：某区域下离线Top3的子区域？"
       onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"></textarea>
+    <button id="micBtn" title="语音输入（点击开始/结束录音）">🎙️</button>
     <button id="sendBtn" onclick="send()">➤</button>
   </div>
 </div>
@@ -1002,6 +1067,259 @@ imageViewer.addEventListener('click', function(e) {
     closeImageViewer();
   }
 });
+// ========== Whisper Web 语音识别集成 ==========
+
+const micBtn        = document.getElementById('micBtn');
+const voiceStatusEl = document.getElementById('voiceStatus');
+const voiceStatusText = document.getElementById('voiceStatusText');
+const voiceProgress = document.getElementById('voiceProgress');
+
+let whisperWorker   = null;   // Web Worker 实例
+let whisperReady    = false;  // 模型是否已加载完毕
+let isRecording     = false;  // 当前是否录音中
+let mediaRecorder   = null;   // MediaRecorder 实例
+let audioChunks     = [];     // 录音 Blob 切片
+let audioStream     = null;   // 麦克风 MediaStream
+
+/**
+ * 初始化 Whisper Worker（页面加载后延迟执行，不占主线程）
+ */
+function initWhisperWorker() {
+  try {
+    whisperWorker = new Worker('/static/whisper_worker.js', { type: 'module' });
+  } catch (err) {
+    console.warn('[Whisper] Worker 创建失败:', err);
+    micBtn.classList.add('disabled-mic');
+    micBtn.title = '当前浏览器不支持语音识别';
+    return;
+  }
+
+  whisperWorker.addEventListener('message', (e) => {
+    const msg = e.data;
+    switch (msg.type) {
+      case 'status':
+        handleWorkerStatus(msg);
+        break;
+      case 'ready':
+        whisperReady = true;
+        micBtn.classList.remove('loading');
+        micBtn.title = '语音输入（点击开始录音）';
+        voiceStatusEl.classList.remove('visible');
+        console.log(`[Whisper] 模型 ${msg.modelId || ''} 加载完成，可以开始语音输入`);
+        break;
+      case 'result':
+        handleTranscriptionResult(msg.text);
+        break;
+      case 'error':
+        console.error('[Whisper] Worker 错误:', msg.message);
+        resetRecordingState();
+        voiceStatusText.textContent = '⚠️ ' + msg.message;
+        voiceStatusEl.classList.add('visible');
+        setTimeout(() => voiceStatusEl.classList.remove('visible'), 3000);
+        break;
+    }
+  });
+
+  // 静默预加载：延迟 3 秒执行，让首屏业务请求先完成
+  setTimeout(() => {
+    console.log('[Whisper] 开始静默预加载模型...');
+    micBtn.classList.add('loading');
+    micBtn.title = '语音模型加载中...';
+    whisperWorker.postMessage({ type: 'load' });
+  }, 3000);
+}
+
+/**
+ * 处理 Worker 发回的状态消息
+ */
+function handleWorkerStatus(msg) {
+  if (msg.status === 'downloading') {
+    const pct = msg.progress || 0;
+    voiceStatusText.textContent = `正在下载语音模型... ${pct}%`;
+    voiceProgress.style.width = pct + '%';
+    voiceStatusEl.classList.add('visible');
+  } else if (msg.status === 'loading') {
+    voiceStatusText.textContent = '正在初始化模型...';
+    voiceProgress.style.width = '100%';
+  } else if (msg.status === 'transcribing') {
+    voiceStatusText.textContent = '🧠 正在识别语音...';
+    voiceProgress.style.width = '100%';
+    voiceStatusEl.classList.add('visible');
+  }
+}
+
+/**
+ * 处理识别结果
+ */
+function handleTranscriptionResult(text) {
+  resetRecordingState();
+  voiceStatusEl.classList.remove('visible');
+
+  if (text) {
+    // 将识别文字填入输入框
+    inputEl.value = text;
+    inputEl.style.height = 'auto';
+    inputEl.style.height = Math.min(inputEl.scrollHeight, 100) + 'px';
+    inputEl.focus();
+    console.log('[Whisper] 识别结果:', text);
+  } else {
+    voiceStatusText.textContent = '未检测到有效语音，请重试';
+    voiceStatusEl.classList.add('visible');
+    setTimeout(() => voiceStatusEl.classList.remove('visible'), 2500);
+  }
+}
+
+/**
+ * 重置录音相关状态
+ */
+function resetRecordingState() {
+  isRecording = false;
+  micBtn.classList.remove('recording');
+  micBtn.classList.remove('loading');
+  micBtn.title = '语音输入（点击开始录音）';
+  if (audioStream) {
+    audioStream.getTracks().forEach(t => t.stop());
+    audioStream = null;
+  }
+}
+
+/**
+ * 开始录音
+ */
+async function startRecording() {
+  if (!whisperReady) {
+    voiceStatusText.textContent = '⏳ 语音模型仍在加载中，请稍候...';
+    voiceStatusEl.classList.add('visible');
+    setTimeout(() => voiceStatusEl.classList.remove('visible'), 2500);
+    return;
+  }
+
+  try {
+    audioStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        sampleRate: 16000,
+        echoCancellation: true,
+        noiseSuppression: true,
+      }
+    });
+  } catch (err) {
+    console.error('[Whisper] 麦克风权限被拒绝:', err);
+    voiceStatusText.textContent = '⚠️ 需要麦克风权限才能使用语音输入';
+    voiceStatusEl.classList.add('visible');
+    setTimeout(() => voiceStatusEl.classList.remove('visible'), 3000);
+    return;
+  }
+
+  audioChunks = [];
+  mediaRecorder = new MediaRecorder(audioStream, { mimeType: getSupportedMimeType() });
+
+  mediaRecorder.addEventListener('dataavailable', (e) => {
+    if (e.data.size > 0) audioChunks.push(e.data);
+  });
+
+  mediaRecorder.addEventListener('stop', async () => {
+    const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+    console.log('[Whisper] 录音结束，Blob大小:', blob.size, '类型:', blob.type);
+    await processAudioBlob(blob);
+  });
+
+  mediaRecorder.start();
+  isRecording = true;
+  micBtn.classList.add('recording');
+  micBtn.title = '正在录音中，点击结束';
+  voiceStatusText.textContent = '🎙️ 正在录音，点击麦克风停止...';
+  voiceStatusEl.classList.add('visible');
+  console.log('[Whisper] 开始录音');
+}
+
+/**
+ * 停止录音
+ */
+function stopRecording() {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+  }
+  micBtn.classList.remove('recording');
+  micBtn.classList.add('loading');
+  micBtn.title = '正在识别...';
+  voiceStatusText.textContent = '🧠 正在识别语音，请稍候...';
+  console.log('[Whisper] 停止录音，等待处理');
+}
+
+/**
+ * 获取浏览器支持的录音格式
+ */
+function getSupportedMimeType() {
+  const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+  for (const type of types) {
+    if (MediaRecorder.isTypeSupported(type)) return type;
+  }
+  return ''; // 让浏览器自行选择
+}
+
+/**
+ * 将录音 Blob 转换为 16kHz Float32 PCM 并发送给 Worker
+ */
+async function processAudioBlob(blob) {
+  try {
+    const arrayBuffer = await blob.arrayBuffer();
+    // 使用 AudioContext 解码并重采样
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+    // 提取单声道 Float32 数据
+    const float32 = audioBuffer.getChannelData(0);
+    console.log('[Whisper] PCM 数据长度:', float32.length, '采样率:', audioBuffer.sampleRate);
+
+    // 如果数据过短（不到 0.5 秒），提示用户
+    if (float32.length < 8000) {
+      voiceStatusText.textContent = '录音太短了，请说长一点';
+      voiceStatusEl.classList.add('visible');
+      resetRecordingState();
+      micBtn.classList.remove('loading');
+      setTimeout(() => voiceStatusEl.classList.remove('visible'), 2500);
+      audioCtx.close();
+      return;
+    }
+
+    // 将数据发给 Worker 进行推理
+    whisperWorker.postMessage(
+      { type: 'transcribe', audio: float32 },
+      [float32.buffer] // Transfer 所有权，避免拷贝（零拷贝）
+    );
+
+    audioCtx.close();
+  } catch (err) {
+    console.error('[Whisper] 音频处理失败:', err);
+    voiceStatusText.textContent = '⚠️ 音频处理失败: ' + err.message;
+    voiceStatusEl.classList.add('visible');
+    resetRecordingState();
+    micBtn.classList.remove('loading');
+    setTimeout(() => voiceStatusEl.classList.remove('visible'), 3000);
+  }
+}
+
+// -------- 麦克风按钮点击事件 --------
+micBtn.addEventListener('click', () => {
+  if (micBtn.classList.contains('disabled-mic')) return;
+
+  if (isRecording) {
+    stopRecording();
+  } else {
+    startRecording();
+  }
+});
+
+// -------- 页面加载完成后启动预加载 --------
+if (window.Worker) {
+  initWhisperWorker();
+} else {
+  console.warn('[Whisper] 浏览器不支持 Web Worker');
+  micBtn.classList.add('disabled-mic');
+  micBtn.title = '当前浏览器不支持语音识别';
+}
+
 </script>
 </body>
 </html>
